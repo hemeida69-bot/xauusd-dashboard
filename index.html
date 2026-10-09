@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>XAUUSD · AllTick LIVE</title>
+<style>
+:root{--bg:#0b0e11;--card:#161b22;--border:#2a313c;--text:#e6edf3;--muted:#8b949e;--green:#3fb950;--red:#f85149;--amber:#d29922;--blue:#58a6ff}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:1rem}
+.header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.75rem;padding:.75rem 1rem;background:#12161c;border:1px solid var(--border);border-radius:12px;margin-bottom:1rem}
+.brand{font-weight:700;font-size:1.1rem}
+.pill{padding:.3rem .7rem;border-radius:999px;font-size:.7rem;font-weight:700;letter-spacing:.04em}
+.live{background:rgba(63,185,80,.15);color:var(--green)}
+.disc{background:rgba(248,81,73,.15);color:var(--red)}
+.stale{background:rgba(210,153,34,.15);color:var(--amber)}
+.grid{display:grid;grid-template-columns:1.2fr 1fr;gap:1rem}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1rem}
+h2{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}
+.price{font-family:ui-monospace,monospace;font-size:2.4rem;font-weight:600}
+.meta{font-family:ui-monospace,monospace;font-size:.85rem;color:var(--muted);margin-top:.5rem}
+.row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;margin-top:1rem}
+.stat label{display:block;font-size:.65rem;color:var(--muted);text-transform:uppercase}
+.stat span{font-family:ui-monospace,monospace;font-size:.9rem}
+input,button{padding:.55rem .75rem;border-radius:8px;border:1px solid var(--border);background:#0b0e11;color:var(--text);font-size:.85rem}
+button{background:var(--blue);color:#0b0e11;font-weight:600;cursor:pointer;border:none}
+button:disabled{opacity:.5}
+table{width:100%;border-collapse:collapse;font-family:ui-monospace,monospace;font-size:.75rem;margin-top:.5rem}
+th,td{text-align:left;padding:.35rem .4rem;border-bottom:1px solid #21262d;color:var(--muted)}
+th{font-size:.65rem;text-transform:uppercase;color:#6e7681}
+.note{margin-top:.75rem;font-size:.75rem;color:var(--amber)}
+.ok{color:var(--green)}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="brand">Au · XAUUSD Dashboard</div>
+  <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+    <span id="status" class="pill disc">DISCONNECTED</span>
+    <span class="meta">AllTick · GOLD</span>
+    <span class="meta" id="updated">—</span>
+  </div>
+</div>
+<div class="grid">
+  <div class="card">
+    <h2>Last price</h2>
+    <div class="price" id="price">—</div>
+    <div class="meta" id="change">Day change —</div>
+    <div class="row">
+      <div class="stat"><label>Bid</label><span id="bid">—</span></div>
+      <div class="stat"><label>Ask</label><span id="ask">—</span></div>
+      <div class="stat"><label>Spread</label><span id="spread">—</span></div>
+    </div>
+    <p class="note" id="note">Paste token and Connect. Setups unconfirmed until LIVE.</p>
+  </div>
+  <div class="card">
+    <h2>Connection</h2>
+    <input id="token" type="password" placeholder="AllTick API token" style="width:100%;margin-bottom:.5rem"/>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <button id="btnConnect">Connect</button>
+      <button id="btnDisc" style="background:transparent;color:var(--red);border:1px solid rgba(248,81,73,.4)">Disconnect</button>
+    </div>
+    <div class="row" style="margin-top:1rem">
+      <div class="stat"><label>Day open</label><span id="dayO">—</span></div>
+      <div class="stat"><label>Day high</label><span id="dayH">—</span></div>
+      <div class="stat"><label>Day low</label><span id="dayL">—</span></div>
+    </div>
+  </div>
+</div>
+<div class="card" style="margin-top:1rem">
+  <h2>Recent H1 candles (AllTick GOLD)</h2>
+  <table><thead><tr><th>Time UTC</th><th>O</th><th>H</th><th>L</th><th>C</th><th>State</th></tr></thead>
+  <tbody id="tbody"><tr><td colspan="6">Connect to load</td></tr></tbody></table>
+</div>
+<script>
+const BASE="https://quote.alltick.co/quote-b-api";
+const SYM="GOLD";
+const KEY="xauusd_alltick_token";
+let token=localStorage.getItem(KEY)||"", connected=false, timers=[], day=null, lastPrice=null, lastMs=null;
+const $=id=>document.getElementById(id);
+$("token").value=token;
+function setStatus(s){const el=$("status");el.textContent=s;el.className="pill "+(s==="LIVE"?"live":s==="STALE"?"stale":"disc");}
+function fmt(n,d=2){return n==null||isNaN(n)?"—":Number(n).toFixed(d);}
+function q(obj){return encodeURIComponent(JSON.stringify(obj));}
+async function api(path,body){
+  const url=BASE+"/"+path+"?token="+encodeURIComponent(token)+"&query="+q(body);
+  const r=await fetch(url); const j=await r.json();
+  if(j.ret!==200) throw new Error(j.msg||"API error"); return j;
+}
+async function pollQuote(){
+  if(!connected) return;
+  try{
+    const j=await api("trade-tick",{trace:"t"+Date.now(),data:{symbol_list:[{code:SYM}]}});
+    const t=j.data.tick_list[0]; lastPrice=parseFloat(t.price);
+    let ms=parseInt(t.tick_time,10); if(ms<1e12) ms*=1000; if(ms<1e12||ms>Date.now()+6e4) ms=Date.now();
+    lastMs=ms; $("price").textContent=fmt(lastPrice);
+    $("updated").textContent=new Date(ms).toISOString().slice(11,19)+" UTC";
+    if(day){const ch=lastPrice-day.o; $("change").textContent="Day "+(ch>=0?"+":"")+fmt(ch)+" ("+fmt(ch/day.o*100,3)+"%)";}
+    setStatus("LIVE"); $("note").className="note ok";
+    $("note").textContent="LIVE — AllTick GOLD. Indicative only; may differ from your broker.";
+  }catch(e){setStatus("DISCONNECTED"); $("note").textContent="Error: "+e.message;}
+}
+async function pollDepth(){
+  if(!connected) return;
+  try{
+    const j=await api("depth-tick",{trace:"d"+Date.now(),data:{symbol_list:[{code:SYM,depth_level:1}]}});
+    const t=j.data.tick_list[0];
+    const bid=t.bids&&t.bids[0]?parseFloat(t.bids[0].price):null;
+    const ask=t.asks&&t.asks[0]?parseFloat(t.asks[0].price):null;
+    if(bid!=null)$("bid").textContent=fmt(bid); if(ask!=null)$("ask").textContent=fmt(ask);
+    if(bid!=null&&ask!=null)$("spread").textContent=fmt(ask-bid);
+  }catch(e){}
+}
+async function pollDaily(){
+  if(!connected) return;
+  try{
+    const j=await api("kline",{trace:"k"+Date.now(),data:{code:SYM,kline_type:8,kline_timestamp_end:0,query_kline_num:3,adjust_type:0}});
+    const list=j.data.kline_list||[];
+    if(list.length){const d=list[list.length-1]; day={o:+d.open_price,h:+d.high_price,l:+d.low_price,c:+d.close_price};
+      $("dayO").textContent=fmt(day.o); $("dayH").textContent=fmt(day.h); $("dayL").textContent=fmt(day.l);}
+  }catch(e){}
+}
+async function pollH1(){
+  if(!connected) return;
+  try{
+    const j=await api("kline",{trace:"h"+Date.now(),data:{code:SYM,kline_type:5,kline_timestamp_end:0,query_kline_num:12,adjust_type:0}});
+    const list=(j.data.kline_list||[]).slice().reverse();
+    $("tbody").innerHTML=list.map((c,i)=>{
+      const ts=new Date(+c.timestamp*1000).toISOString().replace("T"," ").slice(0,16);
+      const form=i===0;
+      return `<tr><td>${ts}</td><td>${fmt(+c.open_price)}</td><td>${fmt(+c.high_price)}</td><td>${fmt(+c.low_price)}</td><td>${fmt(+c.close_price)}</td><td>${form?"Forming":"Closed"}</td></tr>`;
+    }).join("")||"<tr><td colspan=6>No data</td></tr>";
+  }catch(e){}
+}
+function clearT(){timers.forEach(clearInterval);timers=[];}
+async function connect(){
+  token=$("token").value.trim(); if(!token){alert("Enter token");return;}
+  localStorage.setItem(KEY,token); connected=true; $("btnConnect").disabled=true;
+  await pollQuote(); await new Promise(r=>setTimeout(r,2000)); await pollDepth();
+  await new Promise(r=>setTimeout(r,11000)); await pollDaily();
+  await new Promise(r=>setTimeout(r,11000)); await pollH1();
+  timers.push(setInterval(pollQuote,20000));
+  timers.push(setInterval(pollDepth,40000));
+  timers.push(setInterval(async()=>{await pollDaily(); await new Promise(r=>setTimeout(r,11000)); await pollH1();},90000));
+  timers.push(setInterval(()=>{if(lastMs&&Date.now()-lastMs>45000)setStatus("STALE");},5000));
+}
+function disconnect(){connected=false;clearT();$("btnConnect").disabled=false;setStatus("DISCONNECTED");$("note").textContent="Disconnected.";}
+$("btnConnect").onclick=connect; $("btnDisc").onclick=disconnect;
+if(token) connect();
+</script>
+</body>
+</html>
